@@ -1,0 +1,195 @@
+    //Coded by John Pothos 07/2020  : 
+    #include <Wire.h> //This library allows communication with I2C / TWI devices.
+    #include <LiquidCrystal_I2C.h>//This is a library for I2C LCD displays
+    #include <dht.h> //Library for DTH sensors
+    LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE); // Setup of Display with SDA -> A4 and SCL -> A5, in case 0x27 do not work replace with 0x3F
+    dht DHT; // instance of dht class named DHT
+
+    #define DHT22_PIN 12 // Signal Pin of DTH22
+    #define SoilMoisturePin A0 // Signal Pin of Soil Moisture Sensor
+    const int FrontPinLeft = 6; // Left Wheels Forward (B)ehind (V)iew (Naming pins from Left -> Right Front View of L298N 1LF/2LB/3RB/4RF)
+    const int BackPinLeft= 5;  // Left Wheels Back BV
+    const int BackPinRight = 4; // Right Weels Back BV
+    const int FrontPinRight= 3; // Right Wheels Front BV
+    const int TRC_S1 = 7; // TRC_S1 pin allocation Right Sensor Back View
+    const int TRC_S2 = 8; // TRC_S2 pin allocation Middle Sensor
+    const int TRC_S3 = 9; // TRC_S3 pin allocation Left Sensor Back View
+    const int Trigger =10 ; // Distance Calculator Trigger Pin
+    const int Echo =11; // Distance Calculator Echo Pin
+
+  float hum,temp,moisture;
+  int FixRoute = 25,i,percentmoisture;
+  static int warming_up=0,frontsteps=0,leftfront=0,rightfront=0,leftback=0,rightback=0,goback=0,EndScans=3,turnsteps=0,places_visited=0;
+  long Pulse_Duration,distance;
+  int TRC_S1_Value,TRC_S2_Value, TRC_S3_Value;
+  
+  
+  void movement(); // Movement code
+  void anastrofh();// 180 degree turn code
+  
+  void setup()
+{
+  pinMode(FrontPinLeft,OUTPUT);
+  pinMode(BackPinLeft,OUTPUT);
+  pinMode(FrontPinRight,OUTPUT);
+  pinMode(BackPinRight,OUTPUT);
+  pinMode (TRC_S1, INPUT);
+  pinMode (TRC_S2, INPUT);
+  pinMode (TRC_S3, INPUT);
+  pinMode(Trigger,OUTPUT);
+  pinMode(Echo,INPUT);
+  Serial.begin(9600);
+  lcd.begin(20,4);
+
+}
+
+void loop()
+{
+  //warming_up Explanation : 0 Booting / 1 Movement / 2 Motor + Sensor Scans  / 3 Turn 180 Degrees  / 4 At end dislay result
+  if(warming_up==0) // First Boot System Waitting Time
+   {
+    for(i=3;i>0;i--)
+      {digitalWrite(FrontPinLeft,LOW);digitalWrite(BackPinLeft,LOW);digitalWrite(FrontPinRight,LOW);digitalWrite(BackPinRight,LOW);
+      lcd.clear();lcd.setCursor(0,0);lcd.print(" Warming Up Systems");
+      lcd.setCursor(0,1);lcd.print("All Systems Ok!!");
+      lcd.setCursor(0,2);lcd.print(i);
+      delay(1000);}
+    warming_up=1;
+   }
+else if(warming_up==1) //  Movement to places of interest
+    {movement();}
+
+else if(warming_up==2) // Taking Measurments and Moving Motors
+    {  delay(1000);
+       lcd.clear();lcd.setCursor(0,0);lcd.print("Taking Tests "); 
+        delay(3000);
+        
+      int chk =DHT.read22(DHT22_PIN);
+      hum = DHT.humidity;
+      temp = DHT.temperature; 
+
+    for(i=0;i<5;i++)
+    {
+      moisture = moisture + analogRead(SoilMoisturePin);
+      delay(250);
+    }
+    moisture=moisture/5;
+    percentmoisture=0;
+    percentmoisture = map(moisture,1023,465,0,100);
+    
+warming_up=3;places_visited++;
+      
+      }
+
+
+else if(warming_up==3) // Turn 180 Degrees Function and EndScans is ammount of times does distance check before decide to start procedure.
+   {
+   delay(100);goback=0;
+   digitalWrite(BackPinLeft,HIGH),digitalWrite(BackPinRight,HIGH);delay(FixRoute/3);digitalWrite(BackPinLeft,LOW),digitalWrite(BackPinRight,LOW);
+   i=1;
+       while(i!=2)
+    {
+     delay(100);
+     if(turnsteps==0) // Rotating till Right Sensor Touchs
+        {
+        digitalWrite(BackPinLeft,HIGH);
+        delay(FixRoute);digitalWrite(BackPinLeft,LOW);
+        TRC_S1_Value = digitalRead(TRC_S1);
+        if(TRC_S1_Value==1){turnsteps=1;}
+        } 
+     else if(turnsteps==1) // Goes bit Front from left side till middle no color
+       {digitalWrite(FrontPinLeft,HIGH);
+        delay(FixRoute*3);digitalWrite(FrontPinLeft,LOW);
+        TRC_S2_Value = digitalRead(TRC_S2);
+        if(TRC_S2_Value==0){turnsteps=2;}
+       }
+      else if(turnsteps ==2)//Right Forward till touch the line
+        {digitalWrite(FrontPinRight,HIGH);
+        delay(FixRoute/2);digitalWrite(FrontPinRight,LOW);
+        TRC_S1_Value = digitalRead(TRC_S1);
+        if(TRC_S1_Value==1){i=2;}
+        }
+     }
+     warming_up=1;turnsteps=0;delay(300);
+  }
+
+else if(warming_up==4) // Display sensor results
+  {
+  delay(3000);  lcd.clear();
+  lcd.setCursor(0,0);lcd.print("Humidity : ");lcd.print(hum);lcd.print("%");
+  lcd.setCursor(0,1);lcd.print("Temperature : ");lcd.print(temp);lcd.print("Celsius");
+  lcd.setCursor(0,2);lcd.print("Moisture :");lcd.print(percentmoisture);lcd.print(" %");
+  lcd.setCursor(0,3);lcd.print("Tour Complete ! ");
+  delay(10000);
+	// Display need for Watering or Use of Water Mist
+	if(temp <2)
+	{  delay(2000);  lcd.clear();
+	    lcd.setCursor(0,0);lcd.print("Temperature : ");lcd.print(temp);lcd.print("Celsius");
+	    lcd.setCursor(0,3);lcd.print("START WATERMIST");
+	}
+	if(percentmoisture<=20)
+	{  delay(2000);  lcd.clear();
+	    lcd.setCursor(0,0);lcd.print("Moisture : ");lcd.print(percentmoisture);lcd.print(" %");
+	    lcd.setCursor(0,3);lcd.print("Water The Field");
+	}
+
+  }
+
+} 
+
+void movement()
+{
+
+  //Reading TRC sensors to navigate
+   TRC_S1_Value = digitalRead(TRC_S1);// Reading Sensor TRC_S1 Right BV!
+   TRC_S2_Value = digitalRead(TRC_S2);// Reading Sensor TRC_S2! Middle !
+   TRC_S3_Value = digitalRead(TRC_S3);// Reading Sensor TRC_S3! Left BV!
+
+ 
+
+if(TRC_S1_Value ==0 && TRC_S2_Value==1 && TRC_S3_Value==0) // Vecicle follows the patch with only middle sensor on the line
+    {
+    digitalWrite(FrontPinRight,HIGH);digitalWrite(FrontPinLeft,HIGH);
+    delay(FixRoute);digitalWrite(FrontPinRight,LOW);digitalWrite(FrontPinLeft,LOW);
+    lcd.clear();lcd.setCursor(0,0);lcd.print(" ForWard");delay(100);
+    frontsteps++;
+    }
+else if(TRC_S1_Value ==1 && TRC_S2_Value==1) // The Right and middle sensor touch the line
+    {
+     digitalWrite(FrontPinLeft,HIGH);digitalWrite(FrontPinRight,LOW);
+     delay(FixRoute/3);digitalWrite(FrontPinLeft,LOW);
+     lcd.clear();lcd.setCursor(0,0);lcd.print(" BV Right Touches");leftfront++;}
+    
+else if(TRC_S3_Value ==1 && TRC_S2_Value==1) // The Left and middle sensor touch the line
+    {
+     digitalWrite(FrontPinRight,HIGH);digitalWrite(FrontPinLeft,LOW);
+     delay(FixRoute/3);digitalWrite(FrontPinRight,LOW);
+    lcd.clear();lcd.setCursor(0,0);lcd.print(" BV Left Touches");rightfront++;}
+else if(TRC_S1_Value ==1 && TRC_S2_Value==0) // The Right  touches the line
+    {delay(300);digitalWrite(BackPinRight,HIGH);
+  delay(FixRoute/2);digitalWrite(BackPinRight,LOW);rightback++;
+  }  
+else if(TRC_S3_Value ==1 && TRC_S2_Value==0) // The Left touches the line
+  {delay(300);digitalWrite(BackPinLeft,HIGH);
+  delay(FixRoute/2);digitalWrite(BackPinLeft,LOW);leftback++;
+  }  
+else if(TRC_S1_Value ==0 && TRC_S2_Value==0 && TRC_S3_Value==0) // Either at End or Lost line or wait for turn
+  {
+  //Calculating distance of object if exists
+      digitalWrite(Trigger,LOW);delay(100);digitalWrite(Trigger,HIGH);delayMicroseconds(20);digitalWrite(Trigger,LOW);Pulse_Duration=pulseIn(Echo,HIGH);distance=Pulse_Duration/58.2;
+      lcd.clear();lcd.setCursor(0,0);lcd.print("Scan :");lcd.print(goback);lcd.print(",");lcd.print(distance);lcd.print(" cm");
+      lcd.setCursor(0,1);lcd.print("Front Steps :");lcd.print(frontsteps);
+      lcd.setCursor(0,2);lcd.print("(R)/(L) Fixes");lcd.print(rightfront);lcd.print("/");lcd.print(leftfront);
+      lcd.setCursor(0,3);lcd.print("(R)/(L) Backs");lcd.print(rightback);lcd.print("/");lcd.print(leftback);
+      delay(2000);
+ if(distance<25) 
+     {
+     goback++;
+     if(goback==EndScans && places_visited==1){warming_up=4;}
+     else if(goback==EndScans){warming_up=2;}
+      }
+  else if(distance>25)
+     {goback=0;warming_up=1;}
+  }
+} 
+    
